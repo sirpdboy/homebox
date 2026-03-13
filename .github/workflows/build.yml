@@ -11,112 +11,468 @@ on:
       - "v*"
 
 jobs:
-  build-web:
+  get-version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Print env
-        run: |
-          corepack enable
-          echo "node version:" $(node -v)
-          echo "npm version:" $(npm -v)
-          echo "pnpm version:" $(pnpm -v)
-      - name: Bootstrap
-        run: |
-          make bootstrap-web
-      - name: Build frontend assets
-        run: |
-          make build-web
-      - name: Upload
-        uses: actions/upload-artifact@v4
         with:
-          name: web
-          path: build/static
+          fetch-depth: 0
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+            #VERSION=$(git rev-parse --short HEAD)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+  build-web:
+   runs-on: ubuntu-latest
+   steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: 9
+        run_install: false
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'pnpm'
+        cache-dependency-path: web/pnpm-lock.yaml
+    
+    - name: Check pnpm version
+      run: |
+        echo "pnpm version: $(pnpm --version)"
+        cd web && pnpm --version
+       
+    - name: Print env
+      run: |
+        echo "node version:" $(node -v)
+        echo "npm version:" $(npm -v)
+        echo "pnpm version:" $(pnpm -v)  # 现在可以正常显示
+        echo "Lock file version:"
+        head -5 web/pnpm-lock.yaml | grep "lockfileVersion"
+    
+    - name: Bootstrap
+      run: |
+        cd web
+        pnpm install --frozen-lockfile
+    
+    - name: Build frontend assets
+      run: |
+        cd web
+        pnpm run build
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: web-static
+        path: build/static
+        retention-days: 7
+ 
 
   build-binary:
-    name: build-${{ matrix.platform.file }}
+    name: build-${{ matrix.platform.target }}
     runs-on: ${{ matrix.platform.runner }}
-    needs: build-web
+    needs: [build-web, get-version]
     strategy:
       fail-fast: false
       matrix:
         platform:
+          # ============ macOS targets ============
           - runner: macos-latest
             target: aarch64-apple-darwin
             file: darwin-arm64
+            asset-name: homebox-darwin-arm64-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
           - runner: macos-latest
             target: x86_64-apple-darwin
             file: darwin-amd64
+            asset-name: homebox-darwin-amd64-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
+          
+          # ============ Windows targets ============
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             file: windows-amd64.exe
+            asset-name: homebox-windows-amd64-${{ needs.get-version.outputs.version }}.zip
+            is-windows: true
           - runner: windows-latest
             target: i686-pc-windows-msvc
             file: windows-386.exe
+            asset-name: homebox-windows-386-${{ needs.get-version.outputs.version }}.zip
+            is-windows: true
+          
+          # ============ Linux glibc targets ============
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             file: linux-amd64
-          # TODO: ohos is not ready
-          # - runner: ubuntu-latest
-          #   target: aarch64-unknown-linux-ohos
-          #   file: linux-ohos
+            asset-name: homebox-linux-amd64-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             file: linux-arm64
             tool: gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-          - runner: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            file: linux-arm64-musl
-            tool: musl-tools clang llvm gcc-multilib
+            linker: aarch64-linux-gnu-gcc
+            asset-name: homebox-linux-arm64-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
           - runner: ubuntu-latest
             target: i686-unknown-linux-gnu
             file: linux-386
             tool: gcc-multilib
+            asset-name: homebox-linux-386-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
+          - runner: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            file: linux-armv7
+            tool: gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
+            linker: arm-linux-gnueabihf-gcc
+            asset-name: homebox-linux-armv7-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
+          
+          # ============ Linux musl targets (for OpenWrt, Alpine) ============
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            file: linux-amd64-musl
+            tool: musl-tools
+            static: true
+            asset-name: homebox-linux-amd64-musl-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
+          - runner: ubuntu-latest
+            target: i686-unknown-linux-musl
+            file: linux-386-musl
+            tool: musl-tools gcc-multilib
+            static: true
+            asset-name: homebox-linux-386-musl-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
+            rustflags: "-C target-feature=-crt-static"
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            file: linux-arm64-musl
+            tool: musl-tools gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+            linker: aarch64-linux-gnu-gcc
+            static: true
+            asset-name: homebox-linux-arm64-musl-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
+          - runner: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            file: linux-armv7-musl
+            tool: musl-tools gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
+            linker: arm-linux-gnueabihf-gcc
+            static: true
+            asset-name: homebox-linux-armv7-musl-${{ needs.get-version.outputs.version }}.tar.gz
+            is-windows: false
+
     env:
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-      CC_aarch64_unknown_linux_musl: clang
-      AR_aarch64_unknown_linux_musl: llvm-ar
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-Clink-self-contained=yes -Clinker=rust-lld"
+      RUSTFLAGS: ${{ matrix.platform.rustflags || '' }}
+      
     steps:
       - uses: actions/checkout@v4
-      - name: Print env
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+      
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: ${{ runner.os }}-cargo-${{ matrix.platform.target }}-${{ hashFiles('server/Cargo.lock') }}
+      
+      - name: Print environment
         run: |
           echo "rustc version:" $(rustc --version)
           echo "cargo version:" $(cargo --version)
-          echo "rustup version:" $(rustup --version)
-      - name: Download Static files
+          echo "target:" ${{ matrix.platform.target }}
+          echo "asset-name:" ${{ matrix.platform.asset-name }}
+          echo "version:" ${{ needs.get-version.outputs.version }}
+      
+      - name: Download static files
         uses: actions/download-artifact@v4
         with:
-          name: web
+          name: web-static
           path: build/static
-      - name: Install tool
-        if: matrix.platform.tool
-        run: sudo apt-get install ${{ matrix.platform.tool }}
-      - name: Bootstrap
+      
+      - name: Install dependencies (Unix)
+        if: runner.os != 'Windows'
         run: |
-          make bootstrap-server
-      - name: Build
-        run: make build-arch TARGET=${{ matrix.platform.target }} FILE=${{ matrix.platform.file }}
-      - name: Upload
+          if [ -n "${{ matrix.platform.tool }}" ]; then
+            sudo apt-get update
+            sudo apt-get install -y ${{ matrix.platform.tool }}
+          fi
+          
+          if [ -n "${{ matrix.platform.linker }}" ]; then
+            echo "Linker: ${{ matrix.platform.linker }}"
+            which ${{ matrix.platform.linker }} || echo "Warning: Linker not found"
+          fi
+      
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (!(Get-Command 7z -ErrorAction SilentlyContinue)) {
+            choco install 7zip -y
+          }
+      
+      - name: Bootstrap server
+        working-directory: server
+        shell: bash
+        run: |
+          if [ -f Makefile ]; then
+            make bootstrap-server
+          else
+            echo "No Makefile found, skipping bootstrap"
+          fi
+      
+      - name: Build binary (Unix)
+        if: runner.os != 'Windows'
+        working-directory: server
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.linker }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.platform.linker }}
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: ${{ matrix.platform.linker }}
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: ${{ matrix.platform.linker }}
+        run: |
+          echo "Building for target: ${{ matrix.platform.target }}"
+          echo "RUSTFLAGS: $RUSTFLAGS"
+          
+          cargo build --release --target ${{ matrix.platform.target }} --verbose --all-features
+          
+          if [ $? -ne 0 ]; then
+            echo "Build failed!"
+            exit 1
+          fi
+          
+          # Create dist directory
+          mkdir -p $GITHUB_WORKSPACE/dist
+          
+          # Define binary path
+          BINARY="target/${{ matrix.platform.target }}/release/homebox"
+          
+          if [ -f "$BINARY" ]; then
+            echo "✅ Binary found"
+            
+            # Create temporary directory for packaging
+            TEMP_DIR="$GITHUB_WORKSPACE/temp_package"
+            mkdir -p "$TEMP_DIR"
+            
+            # Copy binary and additional files
+            cp "$BINARY" "$TEMP_DIR/homebox"
+            cp ../README.md "$TEMP_DIR/" 2>/dev/null || true
+            
+            # Create tar.gz package
+            cd "$TEMP_DIR"
+            tar -czf "$GITHUB_WORKSPACE/dist/${{ matrix.platform.asset-name }}" *
+            cd "$GITHUB_WORKSPACE"
+            
+            # Cleanup
+            rm -rf "$TEMP_DIR"
+            
+            echo "✅ Package created: ${{ matrix.platform.asset-name }}"
+            
+            # Verify package
+            echo "Package size: $(du -h dist/${{ matrix.platform.asset-name }} | cut -f1)"
+            echo "Package contents:"
+            tar -tzf "dist/${{ matrix.platform.asset-name }}" | head -10
+          else
+            echo "❌ Binary not found at $BINARY"
+            ls -la target/${{ matrix.platform.target }}/release/ || true
+            exit 1
+          fi
+      
+      - name: Build binary (Windows)
+        if: runner.os == 'Windows'
+        working-directory: server
+        shell: powershell
+        run: |
+          Write-Host "Building for target: ${{ matrix.platform.target }}"
+          cargo build --release --target ${{ matrix.platform.target }} --verbose
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Build failed!"
+            exit 1
+          }
+          
+          # Create dist directory
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\dist" | Out-Null
+          
+          # Define binary path
+          $Binary = "target\${{ matrix.platform.target }}\release\homebox.exe"
+          
+          if (Test-Path $Binary) {
+            Write-Host "✅ Binary found"
+            
+            # Create temporary directory
+            $TempDir = "$env:GITHUB_WORKSPACE\temp_package"
+            New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
+            
+            # Copy binary and additional files
+            Copy-Item $Binary "$TempDir\homebox.exe" -Force
+            if (Test-Path "$env:GITHUB_WORKSPACE\README.md") {
+              Copy-Item "$env:GITHUB_WORKSPACE\README.md" "$TempDir\" -Force
+            }
+            if (Test-Path "$env:GITHUB_WORKSPACE\LICENSE") {
+              Copy-Item "$env:GITHUB_WORKSPACE\LICENSE" "$TempDir\" -Force
+            }
+            
+            # Create zip package
+            Compress-Archive -Path "$TempDir\*" -DestinationPath "$env:GITHUB_WORKSPACE\dist\${{ matrix.platform.asset-name }}" -Force
+            
+            # Cleanup
+            Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+            
+            Write-Host "✅ Package created: ${{ matrix.platform.asset-name }}"
+            
+            # Verify package
+            $file = Get-Item "$env:GITHUB_WORKSPACE\dist\${{ matrix.platform.asset-name }}"
+            Write-Host "Package size: $([math]::Round($file.Length/1MB, 2)) MB"
+            Write-Host "Package contents:"
+            7z l "$env:GITHUB_WORKSPACE\dist\${{ matrix.platform.asset-name }}" | Select-Object -First 15
+          } else {
+            Write-Host "Error: Binary not found at $Binary"
+            Get-ChildItem -Path "target\${{ matrix.platform.target }}\release\" -Recurse
+            exit 1
+          }
+      
+      - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: homebox-${{ matrix.platform.file }}
-          path: build/arch
+          name: ${{ matrix.platform.asset-name }}
+          path: dist/${{ matrix.platform.asset-name }}
+          if-no-files-found: error
+          retention-days: 30
 
   release-tag:
     runs-on: ubuntu-latest
-    needs: build-binary
+    needs: [build-binary, get-version]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
-      - name: Download binary
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Download all packages
         uses: actions/download-artifact@v4
         with:
           pattern: homebox-*
-          path: build/arch
+          path: dist
           merge-multiple: true
-      - name: Upload to Release
+      
+      - name: Generate release notes
+        id: release_notes
         run: |
-          make pack-arch TAG=${{ github.ref }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION="${{ needs.get-version.outputs.version }}"
+          
+          # Generate changelog from git commits
+          echo "## Homebox $VERSION" > release-notes.md
+          echo "" >> release-notes.md
+          echo "### What's New" >> release-notes.md
+          echo "" >> release-notes.md
+          
+          # Get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD | grep -v "Merge" >> release-notes.md
+          else
+            git log --pretty=format:"- %s (%h)" -10 >> release-notes.md
+          fi
+          
+          echo "" >> release-notes.md
+          echo "### Downloads" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "| Platform | Architecture | Package | Size |" >> release-notes.md
+          echo "|----------|--------------|---------|------|" >> release-notes.md
+          
+          cd dist
+          for file in *; do
+            if [ -f "$file" ]; then
+              size=$(ls -lh "$file" | awk '{print $5}')
+              
+              # Parse platform and architecture
+              if [[ "$file" == *"darwin"* ]]; then
+                platform="macOS"
+              elif [[ "$file" == *"windows"* ]]; then
+                platform="Windows"
+              elif [[ "$file" == *"linux"* ]]; then
+                platform="Linux"
+              else
+                platform="Unknown"
+              fi
+              
+              if [[ "$file" == *"arm64"* ]]; then
+                arch="ARM64"
+              elif [[ "$file" == *"amd64"* ]]; then
+                arch="AMD64"
+              elif [[ "$file" == *"386"* ]]; then
+                arch="x86"
+              elif [[ "$file" == *"armv7"* ]]; then
+                arch="ARMv7"
+              else
+                arch="Unknown"
+              fi
+              
+              if [[ "$file" == *"musl"* ]]; then
+                arch="$arch (musl)"
+              fi
+              
+              echo "| $platform | $arch | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $size |" >> ../release-notes.md
+            fi
+          done
+          cd ..
+          
+          echo "" >> release-notes.md
+          echo "### SHA256 Checksums" >> release-notes.md
+          echo '```' >> release-notes.md
+          cd dist
+          for file in *; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" >> ../release-notes.md
+            fi
+          done
+          cd ..
+          echo '```' >> release-notes.md
+          
+          # Set output
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat release-notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Upload checksums
+        run: |
+          cd dist
+          for file in *; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" >> checksums.txt
+            fi
+          done
+          echo "=== SHA256 Checksums ==="
+          cat checksums.txt
+
+      - name: Upload to release
+        uses: ncipollo/release-action@v1
+        with:
+          name: Homebox ${{ needs.get-version.outputs.version }}
+          tag: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: "dist/*"
+          body: ${{ steps.release_notes.outputs.notes }}
+          artifactErrorsFailBuild: true
