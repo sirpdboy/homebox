@@ -11,6 +11,7 @@ import { css } from '@emotion/react'
 import { take, mergeMap } from 'rxjs/operators'
 import { ping } from '../cases/ping'
 import { showToast } from '../toaster'
+import { useLanguage } from '../contexts/LanguageContext' // 添加语言钩子导入
 
 const $Header = styled.div`
   display: flex;
@@ -37,14 +38,6 @@ enum RunningStep {
   DONE,
 }
 
-const RunningStepLabels: Record<RunningStep, string> = {
-  [RunningStep.NONE]: 'Start',
-  [RunningStep.DOWNLOAD]: 'Downloading',
-  [RunningStep.PING]: 'Pinging',
-  [RunningStep.UPLOAD]: 'Uploading',
-  [RunningStep.DONE]: 'Restart',
-}
-
 export function RunCaseOnce() {
   const [dlRate, setDlRate] = useState(-1)
   const [ulRate, setUlRate] = useState(-1)
@@ -52,6 +45,19 @@ export function RunCaseOnce() {
   const [step, setStep] = useState(RunningStep.NONE)
   const createChannels = useContext(ChannelsContext)
   const { duration, parallel, packCount, unit } = useContext(ConfigContext)
+  
+  const { t } = useLanguage()
+
+  const getStepLabel = (step: RunningStep): string => {
+    const stepLabels: Record<RunningStep, string> = {
+      [RunningStep.NONE]: t('start'),
+      [RunningStep.PING]: t('pinging'),
+      [RunningStep.DOWNLOAD]: t('downloading'),
+      [RunningStep.UPLOAD]: t('uploading'),
+      [RunningStep.DONE]: t('restart'),
+    }
+    return stepLabels[step]
+  }
 
   const _start = async () => {
     clearTTL()
@@ -101,7 +107,7 @@ export function RunCaseOnce() {
   const start = () => {
     _start().catch(err => {
       showToast({
-        message: `Error, Please check environment`,
+        message: t('errorMessage'), 
         intent: Intent.DANGER,
         icon: "warning-sign",
       })
@@ -113,17 +119,17 @@ export function RunCaseOnce() {
     <div>
       <$Header>
         <$HeaderCase>
-          <$CaseTitle>Ping</$CaseTitle>
+          <$CaseTitle>{t('ping')}</$CaseTitle>
           <$CaseContent>{step >= RunningStep.PING ? `${ttl.toFixed(2)} ms` : '--'}</$CaseContent>
         </$HeaderCase>
 
         <$HeaderCase>
-          <$CaseTitle>Download</$CaseTitle>
+          <$CaseTitle>{t('download')}</$CaseTitle>
           <$CaseContent>{step >= RunningStep.DOWNLOAD ? rateFormatters[unit](dlRate) : '--'}</$CaseContent>
         </$HeaderCase>
 
         <$HeaderCase>
-          <$CaseTitle>Upload</$CaseTitle>
+          <$CaseTitle>{t('upload')}</$CaseTitle>
           <$CaseContent>{step >= RunningStep.UPLOAD ? rateFormatters[unit](ulRate) : '--'}</$CaseContent>
         </$HeaderCase>
       </$Header>
@@ -133,7 +139,7 @@ export function RunCaseOnce() {
       />
       <div css={css`${$textCenter}${$mgt[4]}`}>
         <Button onClick={start} disabled={step !== RunningStep.NONE && step !== RunningStep.DONE}>
-          {RunningStepLabels[step]}
+          {getStepLabel(step)}
         </Button>
       </div>
     </div>

@@ -13,7 +13,7 @@ import { LightTheme, DarkTheme } from './styles/theme'
 import { $globalStyle } from './styles/global'
 import { Theme, Config } from './types'
 import { Footer } from './components/footer'
-
+import { LanguageProvider } from './contexts/LanguageContext'
 const $Container = styled.div`
   padding: 12px 24px;
   max-width: 864px;
@@ -61,27 +61,22 @@ export function App() {
     channelsRef.current = new Array(config.threadCount).fill(0).map(() => new HostChannel(createWorker()))
     return channelsRef.current
   }, [config.threadCount])
-  const $theme = useMemo(() => css(config.theme === Theme.Dark ? DarkTheme : LightTheme), [config.theme])
-
+  
   function handleConfigChange(newConfig: Config) {
     localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(newConfig))
     setConfig(newConfig)
   }
 
   return (
+    <LanguageProvider>
     <ChannelsContext.Provider value={createChannels}>
       <ConfigContext.Provider value={config}>
         <Global
           styles={[
             $globalStyle,
-            css`
-              body {
-                ${$theme}
-              }
-            `,
           ]}
         />
-        <$Container className={config.theme === Theme.Dark ? 'bp5-dark' : ''}>
+        <$Container >
           <CaseConfig defaultValue={config} onChange={handleConfigChange} />
           {config.duration !== Infinity ? (
             <RunCaseOnce />
@@ -99,5 +94,6 @@ export function App() {
         </$Container>
       </ConfigContext.Provider>
     </ChannelsContext.Provider>
+    </LanguageProvider>
   )
 }

@@ -3,6 +3,7 @@ import { css } from '@emotion/react'
 import { memo, useContext } from 'react'
 import { ConfigContext } from '../context'
 import { rateFormatters } from '../utils'
+import { useLanguage } from '../contexts/LanguageContext' // useLanguage
 
 const K = 1024
 const SPEED_SPANS = [64, 128, 256, 512, 1024, 2 * K, 4 * K, 8 * K, 16 * K, 32 * K, 1024 * K].map((v) => v * K)
@@ -16,8 +17,10 @@ export const SpeedIndicator = memo(function SpeedIndicator({
   running?: boolean
 }) {
   const { unit } = useContext(ConfigContext)
+  const { t } = useLanguage() // useLanguage
   const formatter = rateFormatters[unit]
   const pbp: ProgressBarProps = {}
+  
   if (typeof speed === 'number') {
     const i = SPEED_SPANS.findIndex((v) => v >= speed)
     if (i === -1) {
@@ -39,6 +42,7 @@ export const SpeedIndicator = memo(function SpeedIndicator({
       pbp.intent = 'success'
     }
   }
+  
   return (
     <div
       css={css`
@@ -55,7 +59,7 @@ export const SpeedIndicator = memo(function SpeedIndicator({
         `}
         intent={pbp.intent}
       >
-        {speed !== undefined ? formatter(speed) : 'Waiting...'}
+        {speed !== undefined ? formatter(speed) : t('waiting')}
       </Tag>
     </div>
   )

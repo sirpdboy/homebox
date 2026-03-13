@@ -8,7 +8,7 @@ use include_dir::{include_dir, Dir};
 use mime_guess::mime;
 use serde::Deserialize;
 use std::path::PathBuf;
-
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const WRITE_PACK_SIZE: usize = 1 * 1024 * 1024;
 
 static STATIC: Dir = include_dir!("../build/static");
@@ -17,12 +17,13 @@ static STATIC: Dir = include_dir!("../build/static");
 #[command(version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Comamnds,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
-enum Comamnds {
+enum Commands {
     Serve(ServeArgs),
+    Version,
 }
 
 #[derive(Args)]
@@ -111,12 +112,22 @@ async fn index() -> impl Responder {
     )
 }
 
+#[get("/version")]
+async fn version_info() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .json(serde_json::json!({
+            "version": VERSION,
+            "name": "homebox"
+        }))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Comamnds::Serve(args) => {
+    match cli.command {
+        Some(Commands::Serve(args)) => {
             let server = HttpServer::new(|| {
                 App::new()
                     .wrap(
@@ -126,18 +137,44 @@ async fn main() -> std::io::Result<()> {
                     .service(upload)
                     .service(upload_options)
                     .service(ping)
+                    .service(version_info)
                     .service(static_resource)
                     .service(index)
             });
 
-            let server_bind_address = format!(
-                "{}:{}",
-                args.host.clone().unwrap_or("0.0.0.0".into()),
-                args.port.unwrap_or(3300)
-            );
+            let host = args.host.unwrap_or_else(|| "0.0.0.0".to_string());
+            let port = args.port.unwrap_or(3300);
+            let server_bind_address = format!("{}:{}", host, port);
 
             println!("Starting server on {}", &server_bind_address);
+            println!("Version: {}", VERSION); 
+            server.bind(server_bind_address)?.run().await
+        }
+        Some(Commands::Version) => {
+            println!("Homebox v{}", VERSION);
+            Ok(())
+        }
+        None => {
+            println!("No command specified, starting server...");
+            println!("Version: v{}", VERSION);
+            
+            let server = HttpServer::new(|| {
+                App::new()
+                    .wrap(
+                        middleware::DefaultHeaders::new().add(("Access-Control-Allow-Origin", "*")),
+                    )
+                    .service(download)
+                    .service(upload)
+                    .service(upload_options)
+                    .service(ping)
+                    .service(version_info)
+                    .service(static_resource)
+                    .service(index)
+            });
 
+            let server_bind_address = "0.0.0.0:3300".to_string();
+            println!("Starting server on {}", server_bind_address);
+            
             server.bind(server_bind_address)?.run().await
         }
     }

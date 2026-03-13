@@ -4,6 +4,7 @@ import { ChannelsContext, ConfigContext } from '../context'
 import { css } from '@emotion/react'
 import { SpeedIndicator } from './speed-indicator'
 import { Subscription, zip } from 'rxjs'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export function CaseRunner(props: { name: 'upload' | 'download'; title: string }) {
   const createChannels = useContext(ChannelsContext)
@@ -11,7 +12,7 @@ export function CaseRunner(props: { name: 'upload' | 'download'; title: string }
   const [rate, setRate] = useState(-1)
   const [running, setRunning] = useState(false)
   const sub = useRef<Subscription | null>(null)
-
+  const { t } = useLanguage()
   const onClick = async () => {
     if (running) {
       sub.current?.unsubscribe()
@@ -38,7 +39,13 @@ export function CaseRunner(props: { name: 'upload' | 'download'; title: string }
       },
     })
   }
-
+  const getTitle = () => {
+    if (props.name === 'download') {
+      return t('download')
+    } else {
+      return t('upload')
+    }
+  }
   return (
     <div
       css={css`
@@ -48,9 +55,9 @@ export function CaseRunner(props: { name: 'upload' | 'download'; title: string }
         padding: 0 12px;
       `}
     >
-      <h3>{props.title}</h3>
+      <h3>{getTitle()}</h3>
       <SpeedIndicator speed={rate === -1 ? undefined : rate} running={running} />
-      <Button onClick={onClick}>{!running ? 'Start' : 'Stop'}</Button>
+      <Button onClick={onClick}>{!running ? t('start') : t('stop')}</Button>
     </div>
   )
 }
