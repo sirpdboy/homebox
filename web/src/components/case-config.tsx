@@ -1,32 +1,105 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { NumericInput, FormGroup, RadioGroup, Radio, Slider, Button, ButtonGroup, Collapse } from '@blueprintjs/core'
-import { RunningMode, SpeedMode, Config, RateUnit } from '../types' // 移除了 Theme 导入
+import { RunningMode, SpeedMode, Config, RateUnit, Theme } from '../types'
 import { css } from '@emotion/react'
 import { Var, ThemeVar } from '../styles/variable'
 import styled from '@emotion/styled'
 import { $valm } from '../styles/utils'
-import { useLanguage } from '../contexts/LanguageContext' // 添加语言钩子导入
+import { useLanguage } from '../contexts/LanguageContext'
 
 const $Header = styled.div`
   display: flex;
   flex-direction: row;
   margin-bottom: 24px;
   align-items: center;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
 `
 
 const $HeaderLeft = styled.div`
   flex: auto;
+
+  @media (max-width: 768px) {
+    width: 100%;
+  }
 `
 
 const $HeaderRight = styled.div`
   flex: none;
   display: flex;
   gap: 8px;
+  align-items: center;
+    
+  @media (max-width: 768px) {
+    gap: 4px;
+    justify-content: flex-end;
+  }
 `
 
 const $mgr8 = css`
   margin-right: 8px;
 `
+
+const $MobileTabs = styled.div`
+  display: none;
+  
+  @media (max-width: 768px) {
+    display: flex;
+    width: 100%;
+    gap: 4px;
+    margin-top: 8px;
+  }
+`
+
+const $MobileTab = styled(Button)`
+  flex: 1;
+  justify-content: center;
+  padding: 10px 4px;
+  font-size: 14px;
+  border-radius: 4px;
+`
+
+const $MobileContent = styled.div`
+  display: none;
+  
+  @media (max-width: 768px) {
+    display: block;
+    margin-top: 16px;
+    padding: 8px 0;
+  }
+`
+
+const $DesktopContent = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  
+  @media (max-width: 768px) {
+    display: none;
+  }
+`
+
+function useWindowSize() {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768)
+    }
+    
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  return isMobile
+}
 
 type ChangeHandler<T> = (newValue: T, oldValue: T) => void
 type ChangeHandlerDispose = () => void
@@ -246,6 +319,10 @@ function createFormObjectGroup<T extends FormFields>(fields: T, config: FormFiel
 
 export function CaseConfig(props: { defaultValue?: Config; onChange?: (v: Config) => void }) {
   const [_, setCount] = useState(0)
+  const [isAdvancedConfig, setAdvancedConfig] = useState(false)
+  const [activeTab, setActiveTab] = useState<'mode' | 'unit' | 'config'>('mode')
+  const isMobile = useWindowSize()
+  
   const onChangeRef = useRef(props.onChange)
   onChangeRef.current = props.onChange
   
@@ -263,6 +340,7 @@ export function CaseConfig(props: { defaultValue?: Config; onChange?: (v: Config
       duration: createFormField(
         defaultValue?.duration === Infinity ? 10 : (defaultValue?.duration ?? 10 * 1000) / 1000,
       ),
+      theme: createFormField(defaultValue?.theme ?? Theme.Light, {}),
     })
 
     group.whenChanged((nv, ov) => {
@@ -287,80 +365,199 @@ export function CaseConfig(props: { defaultValue?: Config; onChange?: (v: Config
           parallel: nv.parallel,
           unit: nv.unit,
           duration: nv.runningMode === RunningMode.ONCE ? nv.duration * 1000 : Infinity,
-          // 移除了 theme
+          theme: nv.theme,
         })
       }
     })
     return group
   }, [])
   
-  const [isAdvancedConfig, setAdvancedConfig] = useState(false)
-
-  const { runningMode, threadCount, speedRange, packCount, duration, unit, parallel } = form.fields
+  const { runningMode, threadCount, speedRange, packCount, duration, unit, parallel, theme } = form.fields
 
   return (
     <div>
       <$Header>
         <$HeaderLeft>
-          <ButtonGroup css={css`${$mgr8}${$valm}`}>
-            <Button
-              intent={runningMode.value === RunningMode.ONCE ? 'success' : 'none'}
-              onClick={() => runningMode.onChange(RunningMode.ONCE)}
-              icon={runningMode.value === RunningMode.ONCE ? 'small-tick' : undefined}
-            >
-              {t('singleTest')}
-            </Button>
-            <Button
-              intent={runningMode.value === RunningMode.CONTINUE ? 'success' : 'none'}
-              onClick={() => runningMode.onChange(RunningMode.CONTINUE)}
-              icon={runningMode.value === RunningMode.CONTINUE ? 'small-tick' : undefined}
-            >
-              {t('continuousTest')}
-            </Button>
-          </ButtonGroup>
-          
-          <ButtonGroup css={css`${$mgr8}${$valm}`}>
-            <Button
-              title={t('bytePerSecond')}
-              intent={unit.value === RateUnit.BYTE ? 'success' : 'none'}
-              onClick={() => unit.onChange(RateUnit.BYTE)}
-              icon={unit.value === RateUnit.BYTE ? 'small-tick' : undefined}
-            >
-              B/s
-            </Button>
-            <Button
-              title={t('bitPerSecond')}
-              intent={unit.value === RateUnit.BIT ? 'success' : 'none'}
-              onClick={() => unit.onChange(RateUnit.BIT)}
-              icon={unit.value === RateUnit.BIT ? 'small-tick' : undefined}
-            >
-              b/s
-            </Button>
-          </ButtonGroup>
-          
-          <ButtonGroup css={$valm}>
-            <Button
-              onClick={() => setAdvancedConfig(!isAdvancedConfig)}
-              intent={isAdvancedConfig ? 'success' : 'none'}
-              icon='settings'
-            >
-              {isAdvancedConfig ? t('normalConfig') : t('advancedConfig')}
-            </Button>
-          </ButtonGroup>
-        </$HeaderLeft>
-        
-        <$HeaderRight>
-          {/* 添加语言切换按钮 */}
+	
           <Button
             intent='none'
             icon='translate'
             onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')}
             minimal
+            style={{ marginRight: '4px' }} 
           >
             {language === 'en' ? '中文' : 'English'}
           </Button>
+	  
+          <Button
+            intent='warning'
+            icon={theme.value === Theme.Light ? 'moon' : 'flash'}
+            onClick={() => theme.onChange(theme.value === Theme.Dark ? Theme.Light : Theme.Dark)}
+            minimal
+          />
+        </$HeaderLeft>
+        
+        <$HeaderRight>
+
+          <$DesktopContent>
+            <ButtonGroup css={css`${$mgr8}${$valm}`}>
+              <Button
+                intent={runningMode.value === RunningMode.ONCE ? 'success' : 'none'}
+                onClick={() => runningMode.onChange(RunningMode.ONCE)}
+                icon={runningMode.value === RunningMode.ONCE ? 'small-tick' : undefined}
+              >
+                {t('singleTest')}
+              </Button>
+              <Button
+                intent={runningMode.value === RunningMode.CONTINUE ? 'success' : 'none'}
+                onClick={() => runningMode.onChange(RunningMode.CONTINUE)}
+                icon={runningMode.value === RunningMode.CONTINUE ? 'small-tick' : undefined}
+              >
+                {t('continuousTest')}
+              </Button>
+            </ButtonGroup>
+            
+            <ButtonGroup css={css`${$mgr8}${$valm}`}>
+              <Button
+                title={t('bytePerSecond')}
+                intent={unit.value === RateUnit.BYTE ? 'success' : 'none'}
+                onClick={() => unit.onChange(RateUnit.BYTE)}
+                icon={unit.value === RateUnit.BYTE ? 'small-tick' : undefined}
+              >
+                B/s
+              </Button>
+              <Button
+                title={t('bitPerSecond')}
+                intent={unit.value === RateUnit.BIT ? 'success' : 'none'}
+                onClick={() => unit.onChange(RateUnit.BIT)}
+                icon={unit.value === RateUnit.BIT ? 'small-tick' : undefined}
+              >
+                b/s
+              </Button>
+            </ButtonGroup>
+            
+            <ButtonGroup css={$valm}>
+              <Button
+                onClick={() => setAdvancedConfig(!isAdvancedConfig)}
+                intent={isAdvancedConfig ? 'success' : 'none'}
+                icon='settings'
+              >
+                {isAdvancedConfig ? t('normalConfig') : t('advancedConfig')}
+              </Button>
+            </ButtonGroup>
+          </$DesktopContent>
+
+          {isMobile && (
+            <$MobileTabs>
+              <$MobileTab
+                intent={activeTab === 'mode' ? 'primary' : 'none'}
+                onClick={() => setActiveTab('mode')}
+                minimal={activeTab !== 'mode'}
+                icon={activeTab === 'mode' ? 'small-tick' : undefined}
+              >
+                {t('singleTest')}
+              </$MobileTab>
+              <$MobileTab
+                intent={activeTab === 'unit' ? 'primary' : 'none'}
+                onClick={() => setActiveTab('unit')}
+                minimal={activeTab !== 'unit'}
+                icon={activeTab === 'unit' ? 'small-tick' : undefined}
+              >
+                {t('unit')}
+              </$MobileTab>
+              <$MobileTab
+                intent={activeTab === 'config' ? 'primary' : 'none'}
+                onClick={() => setActiveTab('config')}
+                minimal={activeTab !== 'config'}
+                icon={activeTab === 'config' ? 'small-tick' : undefined}
+              >
+                {isAdvancedConfig ? t('normalConfig') : t('advancedConfig')}
+              </$MobileTab>
+            </$MobileTabs>
+          )}
         </$HeaderRight>
       </$Header>
+
+      {isMobile && (
+        <>
+          <$MobileContent style={{ display: activeTab === 'mode' ? 'block' : 'none' }}>
+            <div css={css`
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+            `}>
+              <Button
+                fill
+                large
+                intent={runningMode.value === RunningMode.ONCE ? 'success' : 'none'}
+                onClick={() => runningMode.onChange(RunningMode.ONCE)}
+                icon={runningMode.value === RunningMode.ONCE ? 'small-tick' : undefined}
+                alignText='left'
+              >
+                {t('singleTest')}
+              </Button>
+              <Button
+                fill
+                large
+                intent={runningMode.value === RunningMode.CONTINUE ? 'success' : 'none'}
+                onClick={() => runningMode.onChange(RunningMode.CONTINUE)}
+                icon={runningMode.value === RunningMode.CONTINUE ? 'small-tick' : undefined}
+                alignText='left'
+              >
+                {t('continuousTest')}
+              </Button>
+            </div>
+          </$MobileContent>
+
+          <$MobileContent style={{ display: activeTab === 'unit' ? 'block' : 'none' }}>
+            <div css={css`
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+            `}>
+              <Button
+                fill
+                large
+                intent={unit.value === RateUnit.BYTE ? 'success' : 'none'}
+                onClick={() => unit.onChange(RateUnit.BYTE)}
+                icon={unit.value === RateUnit.BYTE ? 'small-tick' : undefined}
+                alignText='left'
+              >
+                {t('bytePerSecond')}
+              </Button>
+              <Button
+                fill
+                large
+                intent={unit.value === RateUnit.BIT ? 'success' : 'none'}
+                onClick={() => unit.onChange(RateUnit.BIT)}
+                icon={unit.value === RateUnit.BIT ? 'small-tick' : undefined}
+                alignText='left'
+              >
+                {t('bitPerSecond')}
+              </Button>
+            </div>
+          </$MobileContent>
+
+          <$MobileContent style={{ display: activeTab === 'config' ? 'block' : 'none' }}>
+            <div css={css`
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+            `}>
+              <Button
+                fill
+                large
+                onClick={() => setAdvancedConfig(!isAdvancedConfig)}
+                intent={isAdvancedConfig ? 'success' : 'none'}
+                icon='settings'
+                alignText='left'
+              >
+                {isAdvancedConfig ? t('normalConfig') : t('advancedConfig')}
+              </Button>
+            </div>
+          </$MobileContent>
+        </>
+      )}
 
       <Collapse isOpen={isAdvancedConfig}>
         <div
@@ -368,6 +565,10 @@ export function CaseConfig(props: { defaultValue?: Config; onChange?: (v: Config
             padding: 24px;
             background: ${Var(ThemeVar.ConfigPanelBgColor)};
             margin-bottom: 24px;
+            
+            @media (max-width: 768px) {
+              padding: 16px;
+            }
           `}
         >
           {runningMode.value === RunningMode.ONCE && (
@@ -375,22 +576,26 @@ export function CaseConfig(props: { defaultValue?: Config; onChange?: (v: Config
               label={t('duration')} 
               labelInfo={`(${t('seconds')})`} 
               key='duration' 
-              inline={true}
+              inline={!isMobile}
             >
-              <NumericInput value={duration.value} onValueChange={duration.onChange} />
+              <NumericInput 
+                value={duration.value} 
+                onValueChange={duration.onChange}
+                fill={isMobile}
+              />
             </FormGroup>
           )}
           
           <FormGroup
             label={t('speedRange')}
             key='speedRange'
-            inline={true}
+            inline={!isMobile}
             helperText={t('speedRangeHelper')}
           >
             <RadioGroup
               selectedValue={speedRange.value}
               onChange={(e) => speedRange.onChange(e.currentTarget.value as SpeedMode)}
-              inline={true}
+              inline={!isMobile}
             >
               <Radio label={t('lowSpeed')} value={SpeedMode.LOW} />
               <Radio label={t('highSpeed')} value={SpeedMode.HIGH} />

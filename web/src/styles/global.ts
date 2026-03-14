@@ -7,8 +7,11 @@ export const $globalStyle = css`
   body {
     padding: 0;
     margin: 0;
-    background:  rgba(50,50,50,0.03);
+    background: ${Var(ThemeVar.BackendColor)};
     font-variant-numeric: tabular-nums;
   }
 
+  body {
+    ${css(LightTheme)}
+  }
 `

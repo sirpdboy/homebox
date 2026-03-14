@@ -1,6 +1,6 @@
 [package]
 name = "homebox"
-  version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 
 [dependencies]
@@ -11,3 +11,5 @@ serde_json = "1.0"
 futures = "0.3"
 include_dir = "0.7"
 mime_guess = "2"
+env_logger = "0.11"
+log = "0.4"

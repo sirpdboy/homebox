@@ -1,5 +1,5 @@
 use actix_web::{
-    get, http::header::ContentType, middleware, options, post, web, App, Error, HttpRequest,
+    get, head, http::header::ContentType, middleware, options, post, web, App, Error, HttpRequest,
     HttpResponse, HttpServer, Responder,
 };
 use clap::{command, Args, Parser, Subcommand};
@@ -8,13 +8,21 @@ use include_dir::{include_dir, Dir};
 use mime_guess::mime;
 use serde::Deserialize;
 use std::path::PathBuf;
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const WRITE_PACK_SIZE: usize = 1 * 1024 * 1024;
+const DEFAULT_PORT: u16 = 3300;
+const DEFAULT_HOST: &str = "0.0.0.0";
 
 static STATIC: Dir = include_dir!("../build/static");
 
 #[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[command(
+    name = "homebox",
+    version = VERSION,
+    about = "A Toolbox for Home Local Networks Speed Test",
+    long_about = "Homebox is a speed test tool for home local networks, providing download/upload testing and ping latency measurement."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -22,24 +30,36 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Start the speed test server
     Serve(ServeArgs),
+    /// Show version information
     Version,
 }
 
 #[derive(Args)]
 struct ServeArgs {
-    #[arg(long, help = "Port to listen")]
-    port: Option<u16>,
-    #[arg(long, help = "Host to listen")]
-    host: Option<String>,
+    /// Port to listen on
+    #[arg(short, long, default_value_t = DEFAULT_PORT, help = "Port to listen on")]
+    port: u16,
+
+    /// Host address to bind to
+    #[arg(short, long, default_value = DEFAULT_HOST, help = "Host address to bind to")]
+    host: String,
 }
 
 #[get("/ping")]
-async fn ping() -> impl Responder {
+async fn ping_get() -> impl Responder {
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body("{\"message\": \"pong\"}")
 }
+
+
+#[head("/ping")]
+async fn ping_head() -> impl Responder {
+    HttpResponse::NoContent().finish()
+}
+
 
 #[derive(Deserialize)]
 struct DownloadQuery {
@@ -54,11 +74,13 @@ async fn download(query: web::Query<DownloadQuery>) -> impl Responder {
         .clone()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(8);
+    
     let size = query
         .size
         .clone()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(WRITE_PACK_SIZE);
+    
     let vecs = vec![0; size];
 
     let stream = poll_fn(move |_| -> Poll<Option<Result<web::Bytes, Error>>> {
@@ -69,6 +91,7 @@ async fn download(query: web::Query<DownloadQuery>) -> impl Responder {
             Poll::Ready(None)
         }
     });
+
     HttpResponse::Ok()
         .append_header((
             "Cache-Control",
@@ -89,27 +112,37 @@ async fn upload(mut body: web::Payload) -> impl Responder {
 
 #[options("/upload")]
 async fn upload_options() -> impl Responder {
-    HttpResponse::Ok().body("")
+    HttpResponse::Ok()
+        .append_header(("Access-Control-Allow-Methods", "POST, OPTIONS"))
+        .append_header(("Access-Control-Allow-Headers", "Content-Type"))
+        .body("")
 }
 
 #[get("/static/{filename:.*}")]
 async fn static_resource(req: HttpRequest) -> impl Responder {
     let path: PathBuf = req.match_info().query("filename").parse().unwrap();
     let mime = mime_guess::from_path(&path);
-    HttpResponse::Ok()
-        .content_type(mime.first().unwrap_or(mime::TEXT_PLAIN))
-        .body(STATIC.get_file(path.to_str().unwrap()).unwrap().contents())
+    
+    match STATIC.get_file(path.to_str().unwrap()) {
+        Some(file) => {
+            let content_type = mime.first().unwrap_or(mime::TEXT_PLAIN);
+            HttpResponse::Ok()
+                .content_type(content_type)
+                .body(file.contents())
+        }
+        None => HttpResponse::NotFound().body("File not found"),
+    }
 }
+
 
 #[get("/")]
 async fn index() -> impl Responder {
-    HttpResponse::Ok().content_type(ContentType::html()).body(
-        STATIC
-            .get_file("index.html")
-            .unwrap()
-            .contents_utf8()
-            .unwrap(),
-    )
+    match STATIC.get_file("index.html") {
+        Some(file) => HttpResponse::Ok()
+            .content_type(ContentType::html())
+            .body(file.contents_utf8().unwrap_or("")),
+        None => HttpResponse::NotFound().body("index.html not found"),
+    }
 }
 
 #[get("/version")]
@@ -118,64 +151,63 @@ async fn version_info() -> impl Responder {
         .content_type(ContentType::json())
         .json(serde_json::json!({
             "version": VERSION,
-            "name": "homebox"
+            "name": "homebox",
+            "api_version": "v1"
         }))
+}
+
+async fn start_server(host: String, port: u16) -> std::io::Result<()> {
+    let server = HttpServer::new(|| {
+        App::new()
+            .wrap(middleware::DefaultHeaders::new()
+                .add(("Access-Control-Allow-Origin", "*"))
+                .add(("Access-Control-Allow-Methods", "GET, POST, OPTIONS"))
+            )
+            .wrap(middleware::Logger::default())
+            .service(download)
+            .service(upload)
+            .service(upload_options)
+            .service(ping_get)
+            .service(ping_head)
+            .service(version_info)
+            .service(static_resource)
+            .service(index)
+    })
+    .bind((host.as_str(), port))?
+    .run();
+
+    println!("Homebox server v{} started", VERSION);
+    println!("Listening on: http://{}:{}", host, port);
+    println!("API endpoints:");
+    println!("   - GET  /ping       - Health check (with JSON response)");
+    println!("   - HEAD /ping       - Health check (headers only)");
+    println!("   - GET  /download   - Download speed test");
+    println!("   - POST /upload     - Upload speed test");
+    println!("   - GET  /version    - Version info");
+    println!("   - GET  /           - Web interface");
+    println!("Press Ctrl+C to stop");
+
+    server.await
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    
     let cli = Cli::parse();
 
     match cli.command {
         Some(Commands::Serve(args)) => {
-            let server = HttpServer::new(|| {
-                App::new()
-                    .wrap(
-                        middleware::DefaultHeaders::new().add(("Access-Control-Allow-Origin", "*")),
-                    )
-                    .service(download)
-                    .service(upload)
-                    .service(upload_options)
-                    .service(ping)
-                    .service(version_info)
-                    .service(static_resource)
-                    .service(index)
-            });
-
-            let host = args.host.unwrap_or_else(|| "0.0.0.0".to_string());
-            let port = args.port.unwrap_or(3300);
-            let server_bind_address = format!("{}:{}", host, port);
-
-            println!("Starting server on {}", &server_bind_address);
-            println!("Version: {}", VERSION); 
-            server.bind(server_bind_address)?.run().await
+            start_server(args.host, args.port).await
         }
         Some(Commands::Version) => {
             println!("Homebox v{}", VERSION);
+            println!("Build with: {}", env!("CARGO_PKG_RUST_VERSION"));
             Ok(())
         }
         None => {
-            println!("No command specified, starting server...");
-            println!("Version: v{}", VERSION);
-            
-            let server = HttpServer::new(|| {
-                App::new()
-                    .wrap(
-                        middleware::DefaultHeaders::new().add(("Access-Control-Allow-Origin", "*")),
-                    )
-                    .service(download)
-                    .service(upload)
-                    .service(upload_options)
-                    .service(ping)
-                    .service(version_info)
-                    .service(static_resource)
-                    .service(index)
-            });
-
-            let server_bind_address = "0.0.0.0:3300".to_string();
-            println!("Starting server on {}", server_bind_address);
-            
-            server.bind(server_bind_address)?.run().await
+            println!("No command specified, starting server with default settings...");
+            start_server(DEFAULT_HOST.to_string(), DEFAULT_PORT).await
         }
     }
 }

@@ -61,6 +61,7 @@ export function App() {
     channelsRef.current = new Array(config.threadCount).fill(0).map(() => new HostChannel(createWorker()))
     return channelsRef.current
   }, [config.threadCount])
+  const $theme = useMemo(() => css(config.theme === Theme.Dark ? DarkTheme : LightTheme), [config.theme])
   
   function handleConfigChange(newConfig: Config) {
     localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(newConfig))
@@ -74,9 +75,14 @@ export function App() {
         <Global
           styles={[
             $globalStyle,
+            css`
+              body {
+                ${$theme}
+              }
+            `,
           ]}
         />
-        <$Container >
+        <$Container className={config.theme === Theme.Dark ? 'bp5-dark' : ''}>
           <CaseConfig defaultValue={config} onChange={handleConfigChange} />
           {config.duration !== Infinity ? (
             <RunCaseOnce />

@@ -11,7 +11,9 @@ import { css } from '@emotion/react'
 import { take, mergeMap } from 'rxjs/operators'
 import { ping } from '../cases/ping'
 import { showToast } from '../toaster'
-import { useLanguage } from '../contexts/LanguageContext' // 添加语言钩子导入
+import { useLanguage } from '../contexts/LanguageContext'
+
+const API_BASE_URL = ''; 
 
 const $Header = styled.div`
   display: flex;
@@ -45,7 +47,6 @@ export function RunCaseOnce() {
   const [step, setStep] = useState(RunningStep.NONE)
   const createChannels = useContext(ChannelsContext)
   const { duration, parallel, packCount, unit } = useContext(ConfigContext)
-  
   const { t } = useLanguage()
 
   const getStepLabel = (step: RunningStep): string => {
@@ -62,6 +63,7 @@ export function RunCaseOnce() {
   const _start = async () => {
     clearTTL()
     setStep(RunningStep.PING)
+    
     await interval(500)
       .pipe(
         take(10),
@@ -70,6 +72,7 @@ export function RunCaseOnce() {
       .forEach((v) => {
         pushTTL(v)
       })
+    
     const channels = await createChannels()
 
     setStep(RunningStep.DOWNLOAD)
@@ -104,16 +107,24 @@ export function RunCaseOnce() {
     setStep(RunningStep.DONE)
   }
 
-  const start = () => {
+const start = () => {
+  setDlRate(-1);
+  setUlRate(-1);
+  clearTTL();
+  setStep(RunningStep.NONE);
+  
+  setTimeout(() => {
     _start().catch(err => {
       showToast({
-        message: t('errorMessage'), 
+        message: t('errorMessage'),
         intent: Intent.DANGER,
         icon: "warning-sign",
-      })
-      setStep(RunningStep.DONE)
-    })
-  }
+      });
+      setStep(RunningStep.NONE); 
+    });
+  }, 50);
+};
+
 
   return (
     <div>
