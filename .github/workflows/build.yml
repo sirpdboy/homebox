@@ -32,53 +32,52 @@ jobs:
           echo "Building version: $VERSION"
 
   build-web:
-   runs-on: ubuntu-latest
-   steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install pnpm
-      uses: pnpm/action-setup@v3
-      with:
-        version: 9
-        run_install: false
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'pnpm'
-        cache-dependency-path: web/pnpm-lock.yaml
-    
-    - name: Check pnpm version
-      run: |
-        echo "pnpm version: $(pnpm --version)"
-        cd web && pnpm --version
-       
-    - name: Print env
-      run: |
-        echo "node version:" $(node -v)
-        echo "npm version:" $(npm -v)
-        echo "pnpm version:" $(pnpm -v)  # 现在可以正常显示
-        echo "Lock file version:"
-        head -5 web/pnpm-lock.yaml | grep "lockfileVersion"
-    
-    - name: Bootstrap
-      run: |
-        cd web
-        pnpm install --frozen-lockfile
-    
-    - name: Build frontend assets
-      run: |
-        cd web
-        pnpm run build
-    
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: web-static
-        path: build/static
-        retention-days: 7
- 
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+      
+      - name: Check pnpm version
+        run: |
+          echo "pnpm version: $(pnpm --version)"
+          cd web && pnpm --version
+         
+      - name: Print env
+        run: |
+          echo "node version:" $(node -v)
+          echo "npm version:" $(npm -v)
+          echo "pnpm version:" $(pnpm -v)
+          echo "Lock file version:"
+          head -5 web/pnpm-lock.yaml | grep "lockfileVersion"
+      
+      - name: Bootstrap
+        run: |
+          cd web
+          pnpm install --frozen-lockfile
+      
+      - name: Build frontend assets
+        run: |
+          cd web
+          pnpm run build
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-static
+          path: build/static
+          retention-days: 7
 
   build-binary:
     name: build-${{ matrix.platform.target }}
