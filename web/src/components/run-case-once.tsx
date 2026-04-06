@@ -13,8 +13,6 @@ import { ping } from '../cases/ping'
 import { showToast } from '../toaster'
 import { useLanguage } from '../contexts/LanguageContext'
 
-const API_BASE_URL = ''; 
-
 const $Header = styled.div`
   display: flex;
 `
